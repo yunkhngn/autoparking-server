@@ -41,6 +41,7 @@ app.get('/slots', async (req, res) => {
 // API: Đăng ký slot
 app.post('/register', async (req, res) => {
   const { slot_number, license_plate } = req.body;
+  console.log(`📥 Register request: slot=${slot_number}, plate=${license_plate}`);
   if (!slot_number || !license_plate) {
     return res.status(400).json({ error: 'Missing slot_number or license_plate' });
   }
@@ -72,6 +73,7 @@ app.post('/register', async (req, res) => {
 app.post('/checkin', async (req, res) => {
   const { license_plate, otp } = req.body;
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
+  console.log(`🚗 Check-in: plate=${license_plate}, otp=${otp}`);
 
   try {
     const [rows] = await db.query(
@@ -90,7 +92,8 @@ app.post('/checkin', async (req, res) => {
 app.post('/checkout', async (req, res) => {
   const { license_plate, otp } = req.body;
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
-
+  console.log(`🚗 Check-out: plate=${license_plate}, otp=${otp}`);
+  
   try {
     const [rows] = await db.query(
       'SELECT * FROM slots WHERE license_plate=? AND otp=?',
@@ -109,6 +112,17 @@ app.post('/checkout', async (req, res) => {
       [license_plate, otp]
     );
     res.json({ message: 'Check-out success' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// API: Lấy danh sách log
+app.get('/logs', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM logs ORDER BY time_in DESC');
+    res.json(rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'DB error' });
