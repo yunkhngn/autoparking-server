@@ -1,3 +1,43 @@
+require('dotenv').config();
+const express = require('express');
+const mysql = require('mysql2/promise');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Kết nối pool MySQL
+const db = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+});
+
+// Kiểm tra kết nối ngay khi server khởi động
+(async () => {
+  try {
+    const connection = await db.getConnection();
+    console.log('✅ MySQL connected successfully');
+    connection.release(); // trả lại kết nối cho pool
+  } catch (err) {
+    console.error('❌ MySQL connection failed:', err);
+    process.exit(1); // thoát nếu lỗi kết nối
+  }
+})();
+
+// API: Lấy danh sách slot
+app.get('/slots', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM slots');
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({error: 'DB error'});
+  }
+});
+
 // API: Đăng ký slot
 app.post('/register', async (req, res) => {
   const { slot_number, license_plate } = req.body;
@@ -93,3 +133,44 @@ app.post('/checkout', async (req, res) => {
     res.status(500).json({ error: 'DB error' });
   }
 });
+
+// API: Lấy danh sách log
+app.get('/logs', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM logs ORDER BY time_in DESC');
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+//API: Status
+app.post('/status', async (req, res) => {
+  const { license_plate, otp } = req.body;
+  if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
+
+  try {
+    const [rows] = await db.query(
+      'SELECT time_in, time_out FROM logs WHERE license_plate=? AND otp=?',
+      [license_plate, otp]
+    );
+    if (!rows.length) return res.status(400).json({ error: 'Không tìm thấy đăng ký này' });
+
+    const log = rows[0];
+    if (log.time_in && !log.time_out) {
+      return res.json({ status: 'checked_in' });
+    } else if (log.time_in && log.time_out) {
+      return res.json({ status: 'checked_out' });
+    } else {
+      return res.json({ status: 'not_checked_in' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+// Start server
+const port = process.env.PORT || 1204;
+app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
