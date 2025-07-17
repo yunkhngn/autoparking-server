@@ -2,9 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
-const axios = require('axios'); 
+const axios = require('axios');
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
@@ -33,7 +34,7 @@ app.get('/slots', async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({error: 'DB error'});
+    res.status(500).json({ error: 'DB error' });
   }
 });
 
@@ -41,6 +42,7 @@ app.get('/slots', async (req, res) => {
 app.post('/register', async (req, res) => {
   const { slot_number, license_plate } = req.body;
   console.log(`📥 Register request: slot=${slot_number}, plate=${license_plate}`);
+
   if (!slot_number || !license_plate) {
     return res.status(400).json({ error: 'Missing slot_number or license_plate' });
   }
@@ -49,8 +51,10 @@ app.post('/register', async (req, res) => {
 
   try {
     const [rows] = await db.query(
-      'SELECT status FROM slots WHERE slot_number = ?', [slot_number]
+      'SELECT status FROM slots WHERE slot_number = ?',
+      [slot_number]
     );
+
     if (!rows.length) return res.status(404).json({ error: 'Slot not found' });
     if (rows[0].status === 'occupied') return res.status(400).json({ error: 'Slot occupied' });
 
@@ -58,10 +62,22 @@ app.post('/register', async (req, res) => {
       'UPDATE slots SET status="occupied", license_plate=?, otp=? WHERE slot_number=?',
       [license_plate, otp, slot_number]
     );
+
     await db.query(
       'INSERT INTO logs (license_plate, otp) VALUES (?, ?)',
       [license_plate, otp]
     );
+
+    try {
+      await axios.post('http://192.168.4.1/esp-led', {
+        slot: slot_number,
+        status: 'registered'
+      });
+      console.log('✅ ESP LED update sent for registered slot');
+    } catch (err) {
+      console.warn('⚠️ Không gửi được yêu cầu cập nhật LED:', err.message);
+    }
+
     res.json({ message: 'Registered successfully', otp });
   } catch (err) {
     console.error(err);
@@ -72,7 +88,9 @@ app.post('/register', async (req, res) => {
 // POST /checkin
 app.post('/checkin', async (req, res) => {
   const { license_plate, otp } = req.body;
+
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
+
   console.log(`🚗 Check-in: plate=${license_plate}, otp=${otp}`);
 
   try {
@@ -80,12 +98,14 @@ app.post('/checkin', async (req, res) => {
       'SELECT * FROM slots WHERE license_plate=? AND otp=?',
       [license_plate, otp]
     );
+
     if (!rows.length) return res.status(400).json({ error: 'Invalid license_plate or otp' });
 
     await db.query(
       'UPDATE logs SET time_in=NOW() WHERE license_plate=? AND otp=?',
       [license_plate, otp]
     );
+
     await db.query(
       'UPDATE slots SET status="occupied" WHERE license_plate=? AND otp=?',
       [license_plate, otp]
@@ -113,7 +133,9 @@ app.post('/checkin', async (req, res) => {
 // POST /checkout
 app.post('/checkout', async (req, res) => {
   const { license_plate, otp } = req.body;
+
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
+
   console.log(`🚗 Check-out: plate=${license_plate}, otp=${otp}`);
 
   try {
@@ -121,12 +143,14 @@ app.post('/checkout', async (req, res) => {
       'SELECT * FROM slots WHERE license_plate=? AND otp=?',
       [license_plate, otp]
     );
+
     if (!rows.length) return res.status(400).json({ error: 'Invalid license_plate or otp' });
 
     const [logRows] = await db.query(
       'SELECT time_in FROM logs WHERE license_plate=? AND otp=?',
       [license_plate, otp]
     );
+
     if (!logRows.length || !logRows[0].time_in) {
       return res.status(400).json({ error: 'Chưa check-in, không thể check-out' });
     }
@@ -136,6 +160,7 @@ app.post('/checkout', async (req, res) => {
     // Gửi request đến ESP32 trước
     try {
       const connection = await db.getConnection();
+
       try {
         await connection.beginTransaction();
 
@@ -150,6 +175,7 @@ app.post('/checkout', async (req, res) => {
         );
 
         await connection.commit();
+
         console.log('✅ DB updated before ESP checkout');
       } catch (dbErr) {
         await connection.rollback();
@@ -163,6 +189,7 @@ app.post('/checkout', async (req, res) => {
         const espRes = await axios.post('http://192.168.4.1/esp-checkout', {
           slot: slotNumber
         });
+
         if (espRes.status === 200) {
           console.log('✅ ESP check-out gate triggered');
           res.json({ message: 'Check-out success' });
@@ -174,12 +201,12 @@ app.post('/checkout', async (req, res) => {
         console.error('⚠️ Gửi yêu cầu mở cổng thất bại:', espErr.message);
         res.json({ message: 'Check-out success (ESP failed)' });
       }
-
     } catch (espErr) {
       console.error('⚠️ Gửi yêu cầu mở cổng thất bại:', espErr.message);
 
       // Tiếp tục cập nhật DB để không bị kẹt logic
       const connection = await db.getConnection();
+
       try {
         await connection.beginTransaction();
 
@@ -194,6 +221,7 @@ app.post('/checkout', async (req, res) => {
         );
 
         await connection.commit();
+
         console.log('✅ DB updated despite ESP error');
         res.json({ message: 'Check-out success (ESP failed)' });
       } catch (dbErr) {
@@ -204,7 +232,6 @@ app.post('/checkout', async (req, res) => {
         connection.release();
       }
     }
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'DB error' });
@@ -222,9 +249,21 @@ app.get('/logs', async (req, res) => {
   }
 });
 
+// GET /esp-slots
+app.get('/esp-slots', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT slot_number, status FROM slots');
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
 // POST /status
 app.post('/status', async (req, res) => {
   const { license_plate, otp } = req.body;
+
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
 
   try {
@@ -232,9 +271,11 @@ app.post('/status', async (req, res) => {
       'SELECT time_in, time_out FROM logs WHERE license_plate=? AND otp=?',
       [license_plate, otp]
     );
+
     if (!rows.length) return res.status(400).json({ error: 'Không tìm thấy đăng ký này' });
 
     const log = rows[0];
+
     if (log.time_in && !log.time_out) {
       return res.json({ status: 'checked_in' });
     } else if (log.time_in && log.time_out) {

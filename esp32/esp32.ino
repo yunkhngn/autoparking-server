@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <HTTPClient.h>
 #include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
@@ -23,17 +24,53 @@ const int sensorPin[4] = {18, 19, 21, 22};
 
 unsigned long lastBlink[4] = {0};
 bool ledState[4] = {false};
+bool slotOccupied[4] = {false};
+
+void startBlinking(int i) {
+  ledState[i] = false;
+  lastBlink[i] = millis();
+}
+
+void updateLEDs() {
+  for (int i = 0; i < 4; i++) {
+    if (!slotOccupied[i]) {
+      digitalWrite(slotLED[i], HIGH);
+    } else {
+      digitalWrite(slotLED[i], LOW); 
+    }
+  }
+}
+
+void syncSlotStatusFromServer() {
+  HTTPClient http;
+  http.begin("http://192.168.4.2:1204/esp-slots");
+  int httpCode = http.GET();
+  if (httpCode == 200) {
+    String payload = http.getString();
+    StaticJsonDocument<512> doc;
+    DeserializationError err = deserializeJson(doc, payload);
+    if (!err) {
+      for (JsonObject slot : doc.as<JsonArray>()) {
+        int i = slot["slot_number"].as<int>() - 1;
+        const char* status = slot["status"];
+        if (strcmp(status, "available") == 0) {
+          slotOccupied[i] = false;
+        } else {
+          slotOccupied[i] = true;
+        }
+      }
+    }
+  }
+  http.end();
+  updateLEDs();
+}
 
 void handleCheckInTask(void *parameter) {
   int slot = *((int*)parameter);
   delete (int*)parameter;
   int i = slot - 1;
 
-  digitalWrite(slotLED[i], LOW);
-  ledState[i] = false;
-  lastBlink[i] = millis();
-
-  delay(3000);
+  startBlinking(i);
   gateServo.write(OPEN_ANGLE);
 
   while (digitalRead(sensorPin[i]) != LOW) {
@@ -49,8 +86,24 @@ void handleCheckInTask(void *parameter) {
   digitalWrite(slotLED[i], LOW);
   delay(500);
   gateServo.write(CLOSE_ANGLE);
-
+  slotOccupied[i] = true;
   vTaskDelete(NULL);
+}
+
+void handleCheckOut(int slot, AsyncWebServerRequest *req) {
+  int i = slot - 1;
+  int state = digitalRead(sensorPin[i]);
+  if (state == LOW) {
+    req->send(403, "application/json", "{\"error\":\"Xe chưa rời khỏi slot\"}");
+    return;
+  }
+
+  gateServo.write(OPEN_ANGLE);
+  delay(10000);
+  gateServo.write(CLOSE_ANGLE);
+  slotOccupied[i] = false;
+  updateLEDs();
+  req->send(200, "application/json", "{\"status\":\"Check-out ok\"}");
 }
 
 void setup() {
@@ -88,6 +141,9 @@ void setup() {
       return;
     }
 
+    slotOccupied[slot - 1] = true;
+    updateLEDs();
+
     req->send(200, "application/json", "{\"status\":\"Check-in ok\"}");
     int* arg = new int(slot);
     xTaskCreate(handleCheckInTask, "CheckInTask", 2048, arg, 1, NULL);
@@ -107,23 +163,29 @@ void setup() {
       return;
     }
 
+    handleCheckOut(slot, req);
+  });
+
+  server.on("/esp-led", HTTP_POST, [](AsyncWebServerRequest *req){}, NULL,
+  [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
+    StaticJsonDocument<200> doc;
+    deserializeJson(doc, data);
+    int slot = doc["slot"];
+    const char* status = doc["status"];
+
     int i = slot - 1;
-    int state = digitalRead(sensorPin[i]);
-    if (state == LOW) {
-      req->send(403, "application/json", "{\"error\":\"Xe chưa rời khỏi slot\"}");
-      return;
+    if (strcmp(status, "registered") == 0) {
+      digitalWrite(slotLED[i], LOW);
     }
 
-    gateServo.write(OPEN_ANGLE);
-    delay(10000);
-    gateServo.write(CLOSE_ANGLE);
-    req->send(200, "application/json", "{\"status\":\"Check-out ok\"}");
+    req->send(200, "application/json", "{\"ok\":true}");
   });
 
   server.onNotFound([](AsyncWebServerRequest *req) {
     req->redirect("/");
   });
 
+  syncSlotStatusFromServer();
   server.begin();
 }
 
