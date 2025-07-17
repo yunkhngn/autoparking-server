@@ -4,7 +4,6 @@
 #include <SPIFFS.h>
 #include <ESP32Servo.h>
 #include <ArduinoJson.h>
-#include <HTTPClient.h>
 
 const char* ssid = "Parking Hotspot";
 const char* password = "12042005";
@@ -24,9 +23,6 @@ const int sensorPin[4] = {18, 19, 21, 22};
 
 unsigned long lastBlink[4] = {0};
 bool ledState[4] = {false};
-
-unsigned long lastUpdate = 0;
-const unsigned long UPDATE_INTERVAL = 3000;
 
 void handleCheckInTask(void *parameter) {
   int slot = *((int*)parameter);
@@ -57,40 +53,7 @@ void handleCheckInTask(void *parameter) {
   vTaskDelete(NULL);
 }
 
-void updateSlotLEDs() {
-  HTTPClient http;
-  http.begin("http://192.168.4.2:1204/slots"); // Đổi thành IP thật của server
-  int httpCode = http.GET();
-
-  if (httpCode == 200) {
-    String payload = http.getString();
-    StaticJsonDocument<1024> doc;
-    deserializeJson(doc, payload);
-
-    for (int i = 0; i < 4; i++) {
-      String status = doc[i]["status"];
-      int sensorState = digitalRead(sensorPin[i]);
-
-      if (status == "available") {
-        digitalWrite(slotLED[i], HIGH);
-      } else if (status == "occupied" && sensorState == HIGH) {
-        if (millis() - lastBlink[i] >= 500) {
-          ledState[i] = !ledState[i];
-          digitalWrite(slotLED[i], ledState[i] ? HIGH : LOW);
-          lastBlink[i] = millis();
-        }
-      } else {
-        digitalWrite(slotLED[i], LOW);
-      }
-    }
-  }
-  http.end();
-}
-
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
-
   WiFi.softAP(ssid, password);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
   dnsServer.start(DNS_PORT, "*", apIP);
@@ -166,10 +129,4 @@ void setup() {
 
 void loop() {
   dnsServer.processNextRequest();
-
-  unsigned long now = millis();
-  if (now - lastUpdate >= UPDATE_INTERVAL) {
-    lastUpdate = now;
-    updateSlotLEDs();
-  }
 }
