@@ -16,6 +16,7 @@ AsyncWebServer server(80);
 Servo gateServo;
 
 const int servoPin = 13;
+const int gateSensorPin = 27;
 const int OPEN_ANGLE = 10;
 const int CLOSE_ANGLE = 110;
 
@@ -33,12 +34,12 @@ void startBlinking(int i) {
 
 void updateLEDs() {
   for (int i = 0; i < 4; i++) {
-    if (!slotOccupied[i]) {
-      digitalWrite(slotLED[i], HIGH);
-    } else {
-      digitalWrite(slotLED[i], LOW); 
-    }
+    digitalWrite(slotLED[i], slotOccupied[i] ? LOW : HIGH);
   }
+}
+
+bool isVehicleAtGate() {
+  return digitalRead(gateSensorPin) == LOW;
 }
 
 void syncSlotStatusFromServer() {
@@ -48,16 +49,10 @@ void syncSlotStatusFromServer() {
   if (httpCode == 200) {
     String payload = http.getString();
     StaticJsonDocument<512> doc;
-    DeserializationError err = deserializeJson(doc, payload);
-    if (!err) {
+    if (!deserializeJson(doc, payload)) {
       for (JsonObject slot : doc.as<JsonArray>()) {
         int i = slot["slot_number"].as<int>() - 1;
-        const char* status = slot["status"];
-        if (strcmp(status, "available") == 0) {
-          slotOccupied[i] = false;
-        } else {
-          slotOccupied[i] = true;
-        }
+        slotOccupied[i] = strcmp(slot["status"], "available") != 0;
       }
     }
   }
@@ -92,14 +87,27 @@ void handleCheckInTask(void *parameter) {
 
 void handleCheckOut(int slot, AsyncWebServerRequest *req) {
   int i = slot - 1;
-  int state = digitalRead(sensorPin[i]);
-  if (state == LOW) {
-    req->send(403, "application/json", "{\"error\":\"Xe chưa rời khỏi slot\"}");
+
+  // 🚫 Không cho checkout nếu còn xe ở slot (dựa vào cảm biến)
+  if (digitalRead(sensorPin[i]) == LOW) {
+    req->send(403, "application/json", "{\"error\":\"Xe vẫn ở trong slot\"}");
     return;
   }
 
   gateServo.write(OPEN_ANGLE);
-  delay(10000);
+
+  // 🚗 Đợi xe đi vào vùng cảm biến cổng
+  unsigned long entryTimeout = millis() + 10000;
+  while (digitalRead(gateSensorPin) == HIGH && millis() < entryTimeout) {
+    delay(50);
+  }
+
+  // 🛣️ Đợi xe đi hẳn qua cảm biến
+  unsigned long exitTimeout = millis() + 10000;
+  while (digitalRead(gateSensorPin) == LOW && millis() < exitTimeout) {
+    delay(50);
+  }
+
   gateServo.write(CLOSE_ANGLE);
   slotOccupied[i] = false;
   updateLEDs();
@@ -117,15 +125,21 @@ void setup() {
   for (int i = 0; i < 4; i++) {
     pinMode(slotLED[i], OUTPUT);
     pinMode(sensorPin[i], INPUT);
-    digitalWrite(slotLED[i], LOW);
   }
-
+  pinMode(gateSensorPin, INPUT);
   SPIFFS.begin(true);
+
   server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html");
 
   server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *req){ req->redirect("/"); });
   server.on("/fwlink", HTTP_GET, [](AsyncWebServerRequest *req){ req->redirect("/"); });
   server.on("/ncsi.txt", HTTP_GET, [](AsyncWebServerRequest *req){ req->redirect("/"); });
+
+  server.on("/check-gate", HTTP_GET, [](AsyncWebServerRequest *req){
+    bool hasVehicle = isVehicleAtGate();
+    String res = String("{\"has_vehicle\":") + (hasVehicle ? "true" : "false") + "}";
+    req->send(200, "application/json", res);
+  });
 
   server.on("/esp-checkin", HTTP_POST, [](AsyncWebServerRequest *req){}, NULL,
   [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
@@ -136,14 +150,13 @@ void setup() {
     }
 
     int slot = doc["slot"];
-    if (slot < 1 || slot > 4) {
-      req->send(400, "application/json", "{\"error\":\"Invalid slot\"}");
+    if (!isVehicleAtGate()) {
+      req->send(403, "application/json", "{\"error\":\"No vehicle at gate\"}");
       return;
     }
 
     slotOccupied[slot - 1] = true;
     updateLEDs();
-
     req->send(200, "application/json", "{\"status\":\"Check-in ok\"}");
     int* arg = new int(slot);
     xTaskCreate(handleCheckInTask, "CheckInTask", 2048, arg, 1, NULL);
@@ -156,13 +169,7 @@ void setup() {
       req->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
       return;
     }
-
     int slot = doc["slot"];
-    if (slot < 1 || slot > 4) {
-      req->send(400, "application/json", "{\"error\":\"Invalid slot\"}");
-      return;
-    }
-
     handleCheckOut(slot, req);
   });
 
@@ -172,13 +179,21 @@ void setup() {
     deserializeJson(doc, data);
     int slot = doc["slot"];
     const char* status = doc["status"];
-
-    int i = slot - 1;
     if (strcmp(status, "registered") == 0) {
-      digitalWrite(slotLED[i], LOW);
+      digitalWrite(slotLED[slot - 1], LOW);
     }
-
     req->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  server.on("/slot-status", HTTP_GET, [](AsyncWebServerRequest *req) {
+    if (!req->hasParam("slot")) {
+      req->send(400, "application/json", "{\"error\":\"Missing slot param\"}");
+      return;
+    }
+    int slot = req->getParam("slot")->value().toInt();
+    bool occupied = digitalRead(sensorPin[slot - 1]) == LOW;
+    String response = String("{\"occupied\":") + (occupied ? "true" : "false") + "}";
+    req->send(200, "application/json", response);
   });
 
   server.onNotFound([](AsyncWebServerRequest *req) {

@@ -101,6 +101,12 @@ app.post('/checkin', async (req, res) => {
 
     if (!rows.length) return res.status(400).json({ error: 'Invalid license_plate or otp' });
 
+    // Thêm kiểm tra cảm biến cổng
+    const gateStatus = await axios.get('http://192.168.4.1/check-gate');
+    if (!gateStatus.data || gateStatus.data.has_vehicle !== true) {
+      return res.status(403).json({ error: 'Không có xe tại cổng, không thể check-in' });
+    }
+
     await db.query(
       'UPDATE logs SET time_in=NOW() WHERE license_plate=? AND otp=?',
       [license_plate, otp]
@@ -156,6 +162,12 @@ app.post('/checkout', async (req, res) => {
     }
 
     const slotNumber = rows[0].slot_number;
+
+    // Thêm kiểm tra slot vẫn còn xe
+    const statusRes = await axios.get(`http://192.168.4.1/slot-status?slot=${slotNumber}`);
+    if (statusRes.data.occupied) {
+      return res.status(403).json({ error: 'Xe vẫn đang ở slot, không thể check-out' });
+    }
 
     // Gửi request đến ESP32 trước
     try {
