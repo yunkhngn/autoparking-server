@@ -4,7 +4,27 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const axios = require('axios');
 
+console.clear();
+
 const app = express();
+
+const startTime = Date.now();
+const getUptime = () => {
+  const ms = Date.now() - startTime;
+  const s = Math.floor(ms / 1000) % 60;
+  const m = Math.floor(ms / 1000 / 60) % 60;
+  const h = Math.floor(ms / 1000 / 60 / 60);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
+
+
+const log = (type, msg, color = '\x1b[0m') => {
+  const now = new Date().toLocaleTimeString();
+  const bold = '\x1b[1m';
+  const reset = '\x1b[0m';
+  console.log(`${now} | ${bold}${color}[${type}]${reset} ${msg}`);
+};
+
 
 app.use(cors());
 app.use(express.json());
@@ -19,10 +39,10 @@ const db = mysql.createPool({
 (async () => {
   try {
     const connection = await db.getConnection();
-    console.log('MySQL connected successfully');
+    log('INFO', 'MySQL connected successfully', '\x1b[36m');
     connection.release();
   } catch (err) {
-    console.error('MySQL connection failed:', err);
+    log('ERROR', 'MySQL connection failed: ' + err.message, '\x1b[31m');
     process.exit(1);
   }
 })();
@@ -33,7 +53,7 @@ app.get('/slots', async (req, res) => {
     const [rows] = await db.query('SELECT * FROM slots');
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    log('ERROR', err.message, '\x1b[31m');
     res.status(500).json({ error: 'DB error' });
   }
 });
@@ -41,7 +61,7 @@ app.get('/slots', async (req, res) => {
 // POST /register
 app.post('/register', async (req, res) => {
   const { slot_number, license_plate } = req.body;
-  console.log(`Register request: slot=${slot_number}, plate=${license_plate}`);
+  log('INFO', `Register request: slot=${slot_number}, plate=${license_plate}`, '\x1b[36m');
 
   if (!slot_number || !license_plate) {
     return res.status(400).json({ error: 'Missing slot_number or license_plate' });
@@ -73,14 +93,14 @@ app.post('/register', async (req, res) => {
         slot: slot_number,
         status: 'registered'
       });
-      console.log('ESP LED update sent for registered slot');
+      log('INFO', 'ESP LED update sent for registered slot', '\x1b[36m');
     } catch (err) {
-      console.warn('Không gửi được yêu cầu cập nhật LED:', err.message);
+      log('WARN', 'Không gửi được yêu cầu cập nhật LED: ' + err.message, '\x1b[33m');
     }
 
     res.json({ message: 'Registered successfully', otp });
   } catch (err) {
-    console.error(err);
+    log('ERROR', err.message, '\x1b[31m');
     res.status(500).json({ error: 'DB error' });
   }
 });
@@ -91,7 +111,7 @@ app.post('/checkin', async (req, res) => {
 
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
 
-  console.log(`Check-in: plate=${license_plate}, otp=${otp}`);
+  log('INFO', `Check-in: plate=${license_plate}, otp=${otp}`, '\x1b[36m');
 
   try {
     const [rows] = await db.query(
@@ -124,14 +144,14 @@ app.post('/checkin', async (req, res) => {
       await axios.post('http://192.168.4.1/esp-checkin', {
         slot: slotNumber
       });
-      console.log('ESP check-in gate triggered');
+      log('INFO', 'ESP check-in gate triggered', '\x1b[36m');
     } catch (espErr) {
-      console.error('Gửi yêu cầu mở cổng thất bại:', espErr.message);
+      log('ERROR', 'Gửi yêu cầu mở cổng thất bại: ' + espErr.message, '\x1b[31m');
     }
 
     res.json({ message: 'Check-in success' });
   } catch (err) {
-    console.error(err);
+    log('ERROR', err.message, '\x1b[31m');
     res.status(500).json({ error: 'DB error' });
   }
 });
@@ -142,7 +162,7 @@ app.post('/checkout', async (req, res) => {
 
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
 
-  console.log(`Check-out: plate=${license_plate}, otp=${otp}`);
+  log('INFO', `Check-out: plate=${license_plate}, otp=${otp}`, '\x1b[36m');
 
   try {
     const [rows] = await db.query(
@@ -187,11 +207,9 @@ app.post('/checkout', async (req, res) => {
         );
 
         await connection.commit();
-
-        console.log('DB updated before ESP checkout');
       } catch (dbErr) {
         await connection.rollback();
-        console.error('DB update failed:', dbErr.message);
+        log('ERROR', 'DB update failed: ' + dbErr.message, '\x1b[31m');
         return res.status(500).json({ error: 'DB update failed' });
       } finally {
         connection.release();
@@ -203,18 +221,18 @@ app.post('/checkout', async (req, res) => {
         });
 
         if (espRes.status === 200) {
-          console.log('ESP check-out gate triggered');
+          log('INFO', 'ESP check-out gate triggered', '\x1b[36m');
           res.json({ message: 'Check-out success' });
         } else {
-          console.warn('ESP trả về không hợp lệ:', espRes.status);
+          log('WARN', 'ESP trả về không hợp lệ: ' + espRes.status, '\x1b[33m');
           res.json({ message: 'Check-out success (ESP returned invalid response)' });
         }
       } catch (espErr) {
-        console.error('Gửi yêu cầu mở cổng thất bại:', espErr.message);
+        log('ERROR', 'Gửi yêu cầu mở cổng thất bại: ' + espErr.message, '\x1b[31m');
         res.json({ message: 'Check-out success (ESP failed)' });
       }
     } catch (espErr) {
-      console.error('Gửi yêu cầu mở cổng thất bại:', espErr.message);
+      log('ERROR', 'Gửi yêu cầu mở cổng thất bại: ' + espErr.message, '\x1b[31m');
 
       const connection = await db.getConnection();
 
@@ -233,18 +251,18 @@ app.post('/checkout', async (req, res) => {
 
         await connection.commit();
 
-        console.log('DB updated despite ESP error');
+        log('INFO', 'DB updated despite ESP error', '\x1b[36m');
         res.json({ message: 'Check-out success (ESP failed)' });
       } catch (dbErr) {
         await connection.rollback();
-        console.error('error: DB update failed after ESP error:', dbErr.message);
+        log('ERROR', 'error: DB update failed after ESP error: ' + dbErr.message, '\x1b[31m');
         return res.status(500).json({ error: 'DB update failed' });
       } finally {
         connection.release();
       }
     }
   } catch (err) {
-    console.error(err);
+    log('ERROR', err.message, '\x1b[31m');
     res.status(500).json({ error: 'DB error' });
   }
 });
@@ -255,7 +273,7 @@ app.get('/logs', async (req, res) => {
     const [rows] = await db.query('SELECT * FROM logs ORDER BY time_in DESC');
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    log('ERROR', err.message, '\x1b[31m');
     res.status(500).json({ error: 'DB error' });
   }
 });
@@ -266,7 +284,7 @@ app.get('/esp-slots', async (req, res) => {
     const [rows] = await db.query('SELECT slot_number, status FROM slots');
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    log('ERROR', err.message, '\x1b[31m');
     res.status(500).json({ error: 'DB error' });
   }
 });
@@ -285,21 +303,21 @@ app.post('/status', async (req, res) => {
 
     if (!rows.length) return res.status(400).json({ error: 'Không tìm thấy đăng ký này' });
 
-    const log = rows[0];
+    const logEntry = rows[0];
 
-    if (log.time_in && !log.time_out) {
+    if (logEntry.time_in && !logEntry.time_out) {
       return res.json({ status: 'checked_in' });
-    } else if (log.time_in && log.time_out) {
+    } else if (logEntry.time_in && logEntry.time_out) {
       return res.json({ status: 'checked_out' });
     } else {
       return res.json({ status: 'not_checked_in' });
     }
   } catch (err) {
-    console.error(err);
+    log('ERROR', err.message, '\x1b[31m');
     res.status(500).json({ error: 'DB error' });
   }
 });
 
 // Start
 const port = process.env.PORT || 1204;
-app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
+app.listen(port, () => log('INFO', `Server running at http://localhost:${port}`, '\x1b[36m'));
