@@ -19,10 +19,10 @@ const db = mysql.createPool({
 (async () => {
   try {
     const connection = await db.getConnection();
-    console.log('✅ MySQL connected successfully');
+    console.log('MySQL connected successfully');
     connection.release();
   } catch (err) {
-    console.error('❌ MySQL connection failed:', err);
+    console.error('MySQL connection failed:', err);
     process.exit(1);
   }
 })();
@@ -41,7 +41,7 @@ app.get('/slots', async (req, res) => {
 // POST /register
 app.post('/register', async (req, res) => {
   const { slot_number, license_plate } = req.body;
-  console.log(`📥 Register request: slot=${slot_number}, plate=${license_plate}`);
+  console.log(`Register request: slot=${slot_number}, plate=${license_plate}`);
 
   if (!slot_number || !license_plate) {
     return res.status(400).json({ error: 'Missing slot_number or license_plate' });
@@ -73,9 +73,9 @@ app.post('/register', async (req, res) => {
         slot: slot_number,
         status: 'registered'
       });
-      console.log('✅ ESP LED update sent for registered slot');
+      console.log('ESP LED update sent for registered slot');
     } catch (err) {
-      console.warn('⚠️ Không gửi được yêu cầu cập nhật LED:', err.message);
+      console.warn('Không gửi được yêu cầu cập nhật LED:', err.message);
     }
 
     res.json({ message: 'Registered successfully', otp });
@@ -91,7 +91,7 @@ app.post('/checkin', async (req, res) => {
 
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
 
-  console.log(`🚗 Check-in: plate=${license_plate}, otp=${otp}`);
+  console.log(`Check-in: plate=${license_plate}, otp=${otp}`);
 
   try {
     const [rows] = await db.query(
@@ -124,9 +124,9 @@ app.post('/checkin', async (req, res) => {
       await axios.post('http://192.168.4.1/esp-checkin', {
         slot: slotNumber
       });
-      console.log('✅ ESP check-in gate triggered');
+      console.log('ESP check-in gate triggered');
     } catch (espErr) {
-      console.error('⚠️ Gửi yêu cầu mở cổng thất bại:', espErr.message);
+      console.error('Gửi yêu cầu mở cổng thất bại:', espErr.message);
     }
 
     res.json({ message: 'Check-in success' });
@@ -142,7 +142,7 @@ app.post('/checkout', async (req, res) => {
 
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
 
-  console.log(`🚗 Check-out: plate=${license_plate}, otp=${otp}`);
+  console.log(`Check-out: plate=${license_plate}, otp=${otp}`);
 
   try {
     const [rows] = await db.query(
@@ -188,10 +188,10 @@ app.post('/checkout', async (req, res) => {
 
         await connection.commit();
 
-        console.log('✅ DB updated before ESP checkout');
+        console.log('DB updated before ESP checkout');
       } catch (dbErr) {
         await connection.rollback();
-        console.error('❌ DB update failed:', dbErr.message);
+        console.error('DB update failed:', dbErr.message);
         return res.status(500).json({ error: 'DB update failed' });
       } finally {
         connection.release();
@@ -203,20 +203,19 @@ app.post('/checkout', async (req, res) => {
         });
 
         if (espRes.status === 200) {
-          console.log('✅ ESP check-out gate triggered');
+          console.log('ESP check-out gate triggered');
           res.json({ message: 'Check-out success' });
         } else {
-          console.warn('⚠️ ESP trả về không hợp lệ:', espRes.status);
+          console.warn('ESP trả về không hợp lệ:', espRes.status);
           res.json({ message: 'Check-out success (ESP returned invalid response)' });
         }
       } catch (espErr) {
-        console.error('⚠️ Gửi yêu cầu mở cổng thất bại:', espErr.message);
+        console.error('Gửi yêu cầu mở cổng thất bại:', espErr.message);
         res.json({ message: 'Check-out success (ESP failed)' });
       }
     } catch (espErr) {
-      console.error('⚠️ Gửi yêu cầu mở cổng thất bại:', espErr.message);
+      console.error('Gửi yêu cầu mở cổng thất bại:', espErr.message);
 
-      // Tiếp tục cập nhật DB để không bị kẹt logic
       const connection = await db.getConnection();
 
       try {
@@ -234,11 +233,11 @@ app.post('/checkout', async (req, res) => {
 
         await connection.commit();
 
-        console.log('✅ DB updated despite ESP error');
+        console.log('DB updated despite ESP error');
         res.json({ message: 'Check-out success (ESP failed)' });
       } catch (dbErr) {
         await connection.rollback();
-        console.error('❌ DB update failed after ESP error:', dbErr.message);
+        console.error('error: DB update failed after ESP error:', dbErr.message);
         return res.status(500).json({ error: 'DB update failed' });
       } finally {
         connection.release();

@@ -88,21 +88,17 @@ void handleCheckInTask(void *parameter) {
 void handleCheckOut(int slot, AsyncWebServerRequest *req) {
   int i = slot - 1;
 
-  // 🚫 Không cho checkout nếu còn xe ở slot (dựa vào cảm biến)
   if (digitalRead(sensorPin[i]) == LOW) {
     req->send(403, "application/json", "{\"error\":\"Xe vẫn ở trong slot\"}");
     return;
   }
 
   gateServo.write(OPEN_ANGLE);
-
-  // 🚗 Đợi xe đi vào vùng cảm biến cổng
   unsigned long entryTimeout = millis() + 10000;
   while (digitalRead(gateSensorPin) == HIGH && millis() < entryTimeout) {
     delay(50);
   }
 
-  // 🛣️ Đợi xe đi hẳn qua cảm biến
   unsigned long exitTimeout = millis() + 10000;
   while (digitalRead(gateSensorPin) == LOW && millis() < exitTimeout) {
     delay(50);
