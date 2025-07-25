@@ -99,6 +99,39 @@ app.post('/register', async (req, res) => {
     }
 
     res.json({ message: 'Registered successfully', otp });
+
+    // Auto-cancel registration after 30 seconds if not checked in
+    setTimeout(async () => {
+      try {
+        const [rows] = await db.query(
+          'SELECT status FROM slots WHERE slot_number = ? AND license_plate = ? AND otp = ?',
+          [slot_number, license_plate, otp]
+        );
+
+        if (rows.length && rows[0].status === 'occupied') {
+          const [checkLog] = await db.query(
+            'SELECT time_in FROM logs WHERE license_plate=? AND otp=?',
+            [license_plate, otp]
+          );
+
+          if (!checkLog.length || !checkLog[0].time_in) {
+            await db.query(
+              'UPDATE slots SET status="available", license_plate=NULL, otp=NULL WHERE slot_number=?',
+              [slot_number]
+            );
+
+            await db.query(
+              'DELETE FROM logs WHERE license_plate=? AND otp=?',
+              [license_plate, otp]
+            );
+
+            log('INFO', `Auto-cancelled registration for plate=${license_plate}`, '\x1b[33m');
+          }
+        }
+      } catch (cancelErr) {
+        log('ERROR', 'Auto-cancel error: ' + cancelErr.message, '\x1b[31m');
+      }
+    }, 60000);
   } catch (err) {
     log('ERROR', err.message, '\x1b[31m');
     res.status(500).json({ error: 'DB error' });

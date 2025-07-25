@@ -98,7 +98,8 @@ void handleCheckOut(int slot, AsyncWebServerRequest* req) {
   int i = slot - 1;
 
   if (digitalRead(SLOT_SENSOR[i]) == LOW) {
-    req->send(403, "application/json", "{\"error\":\"Xe vẫn ở trong slot\"}");
+    req->send(403, "application/json",
+    "{\"error\":\"Xe vẫn ở trong slot\"}");
     return;
   }
 
