@@ -24,6 +24,7 @@ const int SLOT_SENSOR[4] = {18, 19, 21, 22};
 bool ledState[4] = {false};
 bool slotOccupied[4] = {false};
 unsigned long lastBlink[4] = {0};
+unsigned long lastSync = 0;
 
 // Khởi tạo các đối tượng
 DNSServer dnsServer;
@@ -217,4 +218,9 @@ void setup() {
 
 void loop() {
   dnsServer.processNextRequest();
+
+  if (millis() - lastSync >= 5000) { 
+    syncSlotStatusFromServer();
+    lastSync = millis();
+  }
 }

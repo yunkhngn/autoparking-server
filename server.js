@@ -61,7 +61,7 @@ app.get('/slots', async (req, res) => {
 // POST /register
 app.post('/register', async (req, res) => {
   const { slot_number, license_plate } = req.body;
-  log('INFO', `Register request: slot=${slot_number}, plate=${license_plate}`, '\x1b[36m');
+  log('REGISTER', `slot=${slot_number}, plate=${license_plate}`, '\x1b[34m');
 
   if (!slot_number || !license_plate) {
     return res.status(400).json({ error: 'Missing slot_number or license_plate' });
@@ -93,7 +93,7 @@ app.post('/register', async (req, res) => {
         slot: slot_number,
         status: 'registered'
       });
-      log('INFO', 'ESP LED update sent for registered slot', '\x1b[36m');
+      // Đã gửi yêu cầu cập nhật LED cho slot đã đăng ký
     } catch (err) {
       log('WARN', 'Không gửi được yêu cầu cập nhật LED: ' + err.message, '\x1b[33m');
     }
@@ -144,7 +144,7 @@ app.post('/checkin', async (req, res) => {
 
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
 
-  log('INFO', `Check-in: plate=${license_plate}, otp=${otp}`, '\x1b[36m');
+  log('CHECKIN', `plate=${license_plate}, otp=${otp}`, '\x1b[32m');
 
   try {
     const [rows] = await db.query(
@@ -177,7 +177,7 @@ app.post('/checkin', async (req, res) => {
       await axios.post('http://192.168.4.1/esp-checkin', {
         slot: slotNumber
       });
-      log('INFO', 'ESP check-in gate triggered', '\x1b[36m');
+      // Đã gửi yêu cầu mở cổng check-in tới ESP32
     } catch (espErr) {
       log('ERROR', 'Gửi yêu cầu mở cổng thất bại: ' + espErr.message, '\x1b[31m');
     }
@@ -195,7 +195,7 @@ app.post('/checkout', async (req, res) => {
 
   if (!license_plate || !otp) return res.status(400).json({ error: 'Missing license_plate or otp' });
 
-  log('INFO', `Check-out: plate=${license_plate}, otp=${otp}`, '\x1b[36m');
+  log('CHECKOUT', `plate=${license_plate}, otp=${otp}`, '\x1b[33m');
 
   try {
     const [rows] = await db.query(
@@ -254,7 +254,7 @@ app.post('/checkout', async (req, res) => {
         });
 
         if (espRes.status === 200) {
-          log('INFO', 'ESP check-out gate triggered', '\x1b[36m');
+          // Đã gửi yêu cầu mở cổng check-out tới ESP32
           res.json({ message: 'Check-out success' });
         } else {
           log('WARN', 'ESP trả về không hợp lệ: ' + espRes.status, '\x1b[33m');
