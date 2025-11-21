@@ -351,7 +351,7 @@ yarn build
 
 **Khoa Nguyễn** (yunkhngn)
 - GitHub: [@yunkhngn](https://github.com/yunkhngn)
-- Email: contact@yunkhngn.id.vn
+- Email: yunkhngn.mail@gmail.com
 
 ## License
 
